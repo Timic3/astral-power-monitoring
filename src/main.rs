@@ -3,7 +3,7 @@ mod monitor;
 use monitor::AstralPowerMonitor;
 
 fn main() {
-    println!("NVIDIA RTX 5090 ASTRAL Pin Power Monitor");
+    println!("NVIDIA RTX Astral Pin Power Monitor");
     println!("=========================================\n");
 
     // Initialize NVAPI

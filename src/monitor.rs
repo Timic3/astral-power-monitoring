@@ -138,22 +138,11 @@ impl AstralPowerMonitor {
         let mut raw_data = [0u8; IT8915_POWER_DATA_SIZE];
         self.read_i2c_data(gpu_index, IT8915_POWER_REG_START, &mut raw_data)?;
 
-        /*
-        eprintln!("Raw I2C data (24 bytes):");
-        for (i, chunk) in raw_data.chunks(8).enumerate() {
-            eprint!("  Bytes {:2}-{:2}: ", i * 8, i * 8 + 7);
-            for &b in chunk {
-                eprint!("{:02X} ", b);
-            }
-            eprintln!();
-        }
-        */
-
-        // IT8915 data structure: 6 rails × 4 bytes each = 24 bytes
+        // Data structure: 6 rails × 4 bytes each = 24 bytes
         // Each 4-byte block contains:
         //   Bytes +0,+1: Voltage (16-bit big-endian, millivolts)
         //   Bytes +2,+3: Current (16-bit big-endian, milliamps)
-        // Note: The hardware order is reversed from the software pin numbering
+        // Note: Order is reversed when fetched via I2C
 
         // Extract big-endian u16 from byte array
         let read_u16_be = |offset: usize| -> u16 {
@@ -179,19 +168,6 @@ impl AstralPowerMonitor {
             read_u16_be(6),  // Pin 4 = Rail 1: bytes 6-7
             read_u16_be(2),  // Pin 5 = Rail 0: bytes 2-3
         ];
-
-        /*
-        eprintln!("\nExtracted rail values:");
-        for i in 0..6 {
-            eprintln!(
-                "  Pin {}: {:.3}V × {:.3}A = {:.2}W",
-                i,
-                rail_voltages[i] as f32 * 0.001,
-                rail_currents[i] as f32 * 0.001,
-                (rail_voltages[i] as f32 * 0.001) * (rail_currents[i] as f32 * 0.001)
-            );
-        }
-        */
 
         // Convert to volts and amperes (millivolts/milliamps * 0.001)
         for i in 0..6 {
