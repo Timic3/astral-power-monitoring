@@ -1,0 +1,7 @@
+[package]
+name = "astral_power_monitoring"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nvapi-sys = "0.1.3"
