@@ -2,15 +2,15 @@ use std::mem;
 
 use nvapi_sys::gpu::NvAPI_EnumPhysicalGPUs;
 use nvapi_sys::handles::NvPhysicalGpuHandle;
-use nvapi_sys::i2c::{NV_I2C_INFO_VER3, NVAPI_I2C_SPEED_100KHZ};
+use nvapi_sys::i2c::{NV_I2C_INFO_VER3, NVAPI_I2C_SPEED_100KHZ, NVAPI_I2C_SPEED_DEPRECATED};
 use nvapi_sys::i2c::private::{NV_I2C_INFO_EX_V3, NvAPI_I2CReadEx};
 use nvapi_sys::status::NVAPI_OK;
 use nvapi_sys::types::NVAPI_MAX_PHYSICAL_GPUS;
 
 // IT8915 Power Monitoring IC constants
-const IT8915_I2C_ADDRESS: u8 = 0x56; // I2C device address
-const IT8915_POWER_REG_START: u8 = 0x80; // Starting register for power readings
-const IT8915_POWER_DATA_SIZE: usize = 24; // 24 bytes of power data
+const IT8915_I2C_ADDRESS: u8 = 0x2B << 1; // I2C device address (0x2B), shifted by one to the left
+const IT8915_POWER_REG_START: u8 = 0x80; // Starting register for power readings (0x80)
+const IT8915_POWER_DATA_SIZE: usize = 24; // 24 bytes of power data (6 pins * 2B voltage * 2B current)
 
 pub struct AstralPowerMonitor {
     gpu_handles: Vec<NvPhysicalGpuHandle>,
@@ -19,25 +19,23 @@ pub struct AstralPowerMonitor {
 impl AstralPowerMonitor {
     /// Initialize NVAPI and enumerate GPUs
     pub fn new() -> Result<Self, String> {
-        unsafe {
-            let mut gpu_handles = [mem::zeroed(); NVAPI_MAX_PHYSICAL_GPUS as usize];
-            let mut gpu_count: u32 = 0;
+        let mut gpu_handles = [unsafe { mem::zeroed() }; NVAPI_MAX_PHYSICAL_GPUS as usize];
+        let mut gpu_count: u32 = 0;
 
-            let status = NvAPI_EnumPhysicalGPUs(&mut gpu_handles, &mut gpu_count);
-            if status != NVAPI_OK {
-                return Err(format!("Failed to enumerate GPUs: status {:?}", status));
-            }
-
-            if gpu_count == 0 {
-                return Err("No NVIDIA GPUs found".to_string());
-            }
-
-            let gpu_handles_vec = gpu_handles[..gpu_count as usize].to_vec();
-
-            Ok(Self {
-                gpu_handles: gpu_handles_vec,
-            })
+        let status = unsafe { NvAPI_EnumPhysicalGPUs(&mut gpu_handles, &mut gpu_count) };
+        if status != NVAPI_OK {
+            return Err(format!("Failed to enumerate GPUs: status {:?}", status));
         }
+
+        if gpu_count == 0 {
+            return Err("No NVIDIA GPUs found".to_string());
+        }
+
+        let gpu_handles_vec = gpu_handles[..gpu_count as usize].to_vec();
+
+        Ok(Self {
+            gpu_handles: gpu_handles_vec,
+        })
     }
 
     /// Read raw data from IT8915 power monitoring IC via I2C
@@ -58,53 +56,29 @@ impl AstralPowerMonitor {
     ) -> Result<(), String> {
         let gpu_handle = self.gpu_handles[gpu_index as usize];
 
-        unsafe {
-            let mut reg_addr_buf = reg_addr;
+        let mut reg_addr_buf = reg_addr;
+        let mut i2c_info = NV_I2C_INFO_EX_V3 {
+            version: NV_I2C_INFO_VER3,
+            displayMask: 0,
+            bIsDDCPort: 0,
+            i2cDevAddress: IT8915_I2C_ADDRESS,
+            // Padding of u16 is added in-between for automatic alignment.
+            pbI2cRegAddress: &mut reg_addr_buf,
+            regAddrSize: 1,
+            pbData: data.as_mut_ptr(),
+            pbRead: data.len() as u32,
+            // This is probably not cbSize, but deprecated i2cSpeed parameter.
+            cbSize: NVAPI_I2C_SPEED_DEPRECATED,
+            i2cSpeedKhz: NVAPI_I2C_SPEED_100KHZ,
+            portId: 0x1,
+            bIsPortIdSet: 1
+        };
 
-            // This whole structure is probably wrong, but it works.
-            // The following structure that was reverse-engineered from
-            // ExpanModule.dll seems more correct:
-            /*
-                struct NV_I2C_INFO {
-                    version: u32,              // +0x00 (1002D494): 0x030040 = size 64 | version 3
-                    display_mask: u32,         // +0x04 (1002D498): 0
-                    is_ddc_port: u8,           // +0x08 (1002D49C): 0
-                    i2c_dev_address: u8,       // +0x09 (1002D49D): 0x56
-                    _reserved1: u16,           // +0x0A-0x0B: padding
-                    i2c_reg_address: *mut u8,  // +0x0C (1002D4A0): pointer to register
-                    reg_addr_size: u32,        // +0x10 (1002D4A4): 1
-                    i2c_data: *mut u8,         // +0x14 (1002D4A8): pointer to data buffer
-                    i2c_data_size: u32,        // +0x18 (1002D4AC): 24
-                    port_id: u32,              // +0x1C (1002D4B0): 0xFFFF
-                    i2c_speed_khz: u32,        // +0x20 (1002D4B4): 4
-                    is_port_id_set: u8,        // +0x24 (1002D4B8): 1
-                    _reserved3: u8,            // +0x25
-                    _reserved4: u16,           // +0x26-0x27: padding
-                    _reserved5: u32,           // +0x28 (1002D4BC): 1
-                    _reserved6: [u32; 5],      // +0x2C to +0x3F: padding to 64 bytes
-                }
-            */
-            let mut i2c_info = NV_I2C_INFO_EX_V3 {
-                version: NV_I2C_INFO_VER3,
-                displayMask: 0,
-                bIsDDCPort: 0,
-                i2cDevAddress: IT8915_I2C_ADDRESS,
-                pbI2cRegAddress: &mut reg_addr_buf,
-                regAddrSize: 1,
-                pbData: data.as_mut_ptr(),
-                pbRead: data.len() as u32,
-                cbSize: 0xFFFF,
-                i2cSpeedKhz: NVAPI_I2C_SPEED_100KHZ,
-                portId: 0x01,
-                bIsPortIdSet: 1
-            };
+        let mut i2c_status = 0u32;
+        let status = unsafe { NvAPI_I2CReadEx(gpu_handle, &mut i2c_info, &mut i2c_status) };
 
-            let mut i2c_status = 0u32;
-            let status = NvAPI_I2CReadEx(gpu_handle, &mut i2c_info, &mut i2c_status);
-
-            if status != NVAPI_OK {
-                return Err(format!("I2C read failed: NVAPI status {:?}", status));
-            }
+        if status != NVAPI_OK {
+            return Err(format!("I2C read failed: NVAPI status {:?}", status));
         }
 
         Ok(())

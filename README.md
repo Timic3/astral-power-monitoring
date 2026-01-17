@@ -5,7 +5,7 @@ This Rust application reads voltage and current from Astral GPUs from on-board I
 ## Requirements
 
 - Windows 10/11 (64-bit)
-- ASTRAL GPU 5080/5090 (only 5090 tested)
+- ASUS Astral RTX 5080/5090 GPU (only 5090 tested)
 - NVIDIA Driver installed
 - Rust toolchain (stable)
 
@@ -23,7 +23,9 @@ cargo run --release
 
 ## How it works
 
-Basically Astral 5080 and 5090 graphic cards contain additional sensors, which can be accessed through on-board ITE IT8915FN chip via I2C protocol. We can use NVAPI for this, but the documented NvAPI_I2CRead only allows communication via DDC port. This is why we have to go through undocumented NvAPI_I2CReadEx, which can read via I2C port.
+Astral 5080 and 5090 graphic cards from ASUS contain additional sensors, which can be accessed through on-board ITE IT8915FN chip via I2C protocol. We can use NVAPI for this, but the documented NvAPI_I2CRead only allows communication via DDC port. This is why we have to go through undocumented NvAPI_I2CReadEx, which can read via I2C port.
+
+NvAPI is not supported on linux, but there is a better way to fetch data from the chip, because Linux kernel exposes some functions to communicate via I2C. Create an issue if you are interested in this.
 
 ## Register Information
 
